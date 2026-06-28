@@ -240,7 +240,6 @@ export const useTelemetry = (selectedFilters, searchQuery, sortConfig) => {
       }
       allRowsRef.current = nextAllRows;
       setAllRows(nextAllRows);
-
       // Handle UI rendering state
       if (isPausedRef.current) {
         // Buffer the batch
@@ -251,7 +250,7 @@ export const useTelemetry = (selectedFilters, searchQuery, sortConfig) => {
         setProcessedRows((prevProcessed) => {
           let nextProcessed = [...prevProcessed];
           let resortRequired = false;
-          let indexRebuildRequired = false;
+          let rebuildRequired = false;
 
           const filters = filtersRef.current;
           const query = searchQueryRef.current.trim().toLowerCase();
@@ -277,28 +276,47 @@ export const useTelemetry = (selectedFilters, searchQuery, sortConfig) => {
                 }
                 nextProcessed[currentIdx] = rowWithTime;
               } else {
-                // Insert newly matched row
-                nextProcessed.push(rowWithTime);
-                resortRequired = true;
-                indexRebuildRequired = true;
+                // Row transitioned to matching: rebuild to avoid index shifting bugs
+                rebuildRequired = true;
+                break;
               }
             } else {
               if (currentIdx !== undefined) {
-                // Remove row that no longer matches active filters
-                nextProcessed = nextProcessed.filter(r => r.project_id !== rowWithTime.project_id);
-                indexRebuildRequired = true;
+                // Row transitioned to not matching: rebuild to avoid index shifting bugs
+                rebuildRequired = true;
+                break;
               }
             }
+          }
+
+          // If a row transitioned in or out of the filtered set, perform a full O(N) rebuild
+          if (rebuildRequired) {
+            const result = [];
+            const rows = allRowsRef.current;
+            for (let i = 0; i < rows.length; i++) {
+              const r = rows[i];
+              if (isRowMatching(r, filters, searchTerms)) {
+                result.push(r);
+              }
+            }
+            if (sorting && sorting.length > 0) {
+              nextProcessed = getSortedData(result, sorting);
+            } else {
+              nextProcessed = result;
+            }
+
+            const newIdxMap = new Map();
+            for (let i = 0; i < nextProcessed.length; i++) {
+              newIdxMap.set(nextProcessed[i].project_id, i);
+            }
+            processedRowIndexMapRef.current = newIdxMap;
+            return nextProcessed;
           }
 
           // Sort array only when active sorting columns mutate
           if (resortRequired && sorting && sorting.length > 0) {
             nextProcessed = getSortedData(nextProcessed, sorting);
-            indexRebuildRequired = true;
-          }
-
-          // Rebuild index mapping if rows were added or removed, or if order changed
-          if (indexRebuildRequired) {
+            // Rebuild index mapping since sort order changed
             const newIdxMap = new Map();
             for (let i = 0; i < nextProcessed.length; i++) {
               newIdxMap.set(nextProcessed[i].project_id, i);
@@ -339,62 +357,8 @@ export const useTelemetry = (selectedFilters, searchQuery, sortConfig) => {
           allRowsRef.current = nextAllRows;
           setAllRows(nextAllRows);
 
-          // Flush processedRows incrementally in O(uniqueBatchSize)
-          setProcessedRows((prevProcessed) => {
-            let nextProcessed = [...prevProcessed];
-            let resortRequired = false;
-            let indexRebuildRequired = false;
-
-            const filters = filtersRef.current;
-            const query = searchQueryRef.current.trim().toLowerCase();
-            const searchTerms = query ? query.split(/\s+/).filter(Boolean) : [];
-            const sorting = sortConfigRef.current;
-
-            for (const id of mergedQueuedIds) {
-              const rowWithTime = rowMapRef.current.get(id);
-              const matches = isRowMatching(rowWithTime, filters, searchTerms);
-              const currentIdx = processedRowIndexMapRef.current.get(id);
-
-              if (matches) {
-                if (currentIdx !== undefined) {
-                  const oldRow = nextProcessed[currentIdx];
-                  if (sorting && sorting.length > 0 && !resortRequired) {
-                    for (const { column } of sorting) {
-                      if (oldRow[column] !== rowWithTime[column]) {
-                        resortRequired = true;
-                        break;
-                      }
-                    }
-                  }
-                  nextProcessed[currentIdx] = rowWithTime;
-                } else {
-                  nextProcessed.push(rowWithTime);
-                  resortRequired = true;
-                  indexRebuildRequired = true;
-                }
-              } else {
-                if (currentIdx !== undefined) {
-                  nextProcessed = nextProcessed.filter(r => r.project_id !== id);
-                  indexRebuildRequired = true;
-                }
-              }
-            }
-
-            if (resortRequired && sorting && sorting.length > 0) {
-              nextProcessed = getSortedData(nextProcessed, sorting);
-              indexRebuildRequired = true;
-            }
-
-            if (indexRebuildRequired) {
-              const newIdxMap = new Map();
-              for (let i = 0; i < nextProcessed.length; i++) {
-                newIdxMap.set(nextProcessed[i].project_id, i);
-              }
-              processedRowIndexMapRef.current = newIdxMap;
-            }
-
-            return nextProcessed;
-          });
+          // Full rebuild to guarantee clean, uncorrupted, and sorted grid rows
+          rebuildProcessedData();
 
           queueRef.current = [];
           setQueueSize(0);
@@ -402,7 +366,7 @@ export const useTelemetry = (selectedFilters, searchQuery, sortConfig) => {
       }
       return nextState;
     });
-  }, []);
+  }, [rebuildProcessedData]);
 
   return {
     allRows,
