@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# IDE and Linter Caches
+.eslintcache
+.vite
+.oxlintcache

@@ -3,6 +3,7 @@ import reactPlugin from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
+  base: '/streamforge/',
   plugins: [
     reactPlugin(),
     tailwindcss(),
