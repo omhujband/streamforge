@@ -7,6 +7,7 @@ import { SearchBar } from './components/SearchBar';
 import { QueueControls } from './components/QueueControls';
 import { TelemetryGrid } from './components/TelemetryGrid';
 import { AnalyticsPanel } from './components/AnalyticsPanel';
+import { generateCSV } from './utils/csvExport';
 
 // Optional lightweight FPS Counter enhancement
 const FPSCounter = () => {
@@ -50,6 +51,7 @@ function App() {
   const [selectedDepartments, setSelectedDepartments] = useState(new Set());
   const [selectedIndustries, setSelectedIndustries] = useState(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState(new Set());
+  const [toast, setToast] = useState(null);
 
   // Sort configuration state (Shift-click supports multiple layers)
   const [sortConfig, setSortConfig] = useState([
@@ -179,6 +181,45 @@ function App() {
       }
     });
   }, []);
+
+  // Export Snapshot logic (native downloadable CSV generation)
+  const handleExport = useCallback(() => {
+    if (!processedRows || processedRows.length === 0) return;
+
+    const csvContent = generateCSV(processedRows);
+    if (!csvContent) return;
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+    const filename = `StreamForge_Snapshot_${timestamp}.csv`;
+
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setToast({
+      filename,
+      rowCount: processedRows.length
+    });
+  }, [processedRows]);
+
+  // Self-dismiss toast after 4.5 seconds
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   // Save current filter combinations as a preset
   const handleSavePreset = (e) => {
@@ -320,6 +361,7 @@ function App() {
             isPaused={isPaused}
             queueSize={queueSize}
             onTogglePause={togglePause}
+            onExport={handleExport}
           />
         </div>
 
@@ -392,6 +434,25 @@ function App() {
       {showCharts && (
         <div className="widget-enter mt-5">
           <AnalyticsPanel data={processedRows} />
+        </div>
+      )}
+
+      {/* Confirmation Toast Alert */}
+      {toast && (
+        <div className="fixed bottom-4 right-4 bg-slate-900 border border-emerald-800/80 text-slate-100 p-3 rounded-lg shadow-2xl flex items-center gap-3 z-50 animate-[alert-pulse_0.3s_ease-out]">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></div>
+          <div className="text-xs">
+            <div className="font-bold text-emerald-400">Export Successful</div>
+            <div className="text-slate-400">Exported {toast.rowCount.toLocaleString()} rows</div>
+            <div className="text-[10px] text-slate-500 font-mono mt-0.5 select-all">{toast.filename}</div>
+          </div>
+          <button 
+            onClick={() => setToast(null)}
+            className="text-slate-500 hover:text-slate-300 font-bold text-sm ml-2 cursor-pointer"
+            title="Dismiss Alert"
+          >
+            ×
+          </button>
         </div>
       )}
     </div>
