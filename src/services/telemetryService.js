@@ -34,7 +34,7 @@ export const initializeTelemetryStream = () => {
           console.error("Error in telemetry subscriber callback:", err);
         }
       });
-    }, '/automation_projects.csv');
+    }, `${import.meta.env.BASE_URL}automation_projects.csv`);
     isInitialized = true;
     console.log("📡 [Telemetry Service] Stream listener mounted successfully.");
   } else {

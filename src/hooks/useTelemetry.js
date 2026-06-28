@@ -108,7 +108,7 @@ export const useTelemetry = (selectedFilters, searchQuery, sortConfig) => {
     const loadInitialData = async () => {
       try {
         console.log("⚡ [Telemetry State] Loading baseline CSV...");
-        const response = await fetch('/automation_projects.csv');
+        const response = await fetch(`${import.meta.env.BASE_URL}automation_projects.csv`);
         if (!response.ok) {
           throw new Error(`Failed to fetch CSV: ${response.statusText}`);
         }
